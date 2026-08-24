@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+
+# Launch Neon Overdrive fullscreen on every Hyprland monitor using Omarchy's
+# terminal-specific screensaver profiles.
+
+set -u
+set -o pipefail
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+renderer="$script_dir/neon-overdrive-render"
+omarchy_path="${OMARCHY_PATH:-/usr/share/omarchy}"
+
+fail() {
+  printf 'neon-overdrive-launch: %s\n' "$*" >&2
+  exit 1
+}
+
+for command in hyprctl jq omarchy-cmd-missing omarchy-hyprland-monitor-focused \
+  omarchy-notification-send omarchy-toggle-enabled pgrep socat xdg-terminal-exec; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+omarchy-cmd-missing ttfx && exit 1
+[[ -x $renderer ]] || fail "renderer is missing or not executable: $renderer"
+[[ -n ${XDG_RUNTIME_DIR:-} ]] || fail "XDG_RUNTIME_DIR is not set"
+[[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] || fail "HYPRLAND_INSTANCE_SIGNATURE is not set"
+
+# Do not stack another saver over an existing one.
+pgrep -u "$UID" -f '[o]rg.omarchy.screensaver' >/dev/null && exit 0
+
+# Respect Omarchy's toggle during idle launches while retaining explicit
+# previews through the `force` argument.
+if omarchy-toggle-enabled screensaver-off && [[ ${1:-} != "force" ]]; then
+  exit 1
+fi
+
+focused=$(omarchy-hyprland-monitor-focused) || fail "could not determine the focused monitor"
+terminal=$(xdg-terminal-exec --print-id) || fail "could not determine the default terminal"
+
+case $terminal in
+*Alacritty* | *ghostty* | *foot* | *kitty*) ;;
+*)
+  omarchy-notification-send -g ✋ \
+    "Screensaver only runs in Alacritty, Foot, Ghostty, or Kitty"
+  exit 1
+  ;;
+esac
+
+hypr_focus_monitor() {
+  hyprctl dispatch "hl.dsp.focus({ monitor = \"$1\" })" >/dev/null 2>&1 ||
+    hyprctl dispatch focusmonitor "$1" >/dev/null
+}
+
+hypr_exec() {
+  local command
+  printf -v command '%q ' "$@"
+  hyprctl dispatch "hl.dsp.exec_cmd([[$command]])" >/dev/null 2>&1 ||
+    hyprctl dispatch exec -- bash -lc "$command" >/dev/null
+}
+
+socket="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
+[[ -S $socket ]] || fail "Hyprland event socket is unavailable: $socket"
+exec {events}< <(socat -U - "UNIX-CONNECT:$socket")
+
+wait_for_screensaver_window() {
+  local line deadline=$((SECONDS + 5))
+  while ((SECONDS < deadline)) &&
+    IFS= read -r -t $((deadline - SECONDS)) -u "$events" line; do
+    [[ $line == openwindow\>\>*,org.omarchy.screensaver,* ]] && return 0
+  done
+  return 1
+}
+
+monitors_json=$(hyprctl monitors -j) || fail "could not enumerate monitors"
+jq -e 'type == "array" and length > 0 and all(.[]; (.name | type) == "string" and (.name | length) > 0)' \
+  <<<"$monitors_json" >/dev/null || fail "Hyprland returned an invalid monitor list"
+mapfile -t monitors < <(jq -r '.[].name' <<<"$monitors_json")
+((${#monitors[@]} > 0)) || fail "Hyprland reported no monitors"
+
+for monitor in "${monitors[@]}"; do
+  hypr_focus_monitor "$monitor" || fail "could not focus monitor: $monitor"
+
+  case $terminal in
+  *Alacritty*)
+    hypr_exec alacritty --class=org.omarchy.screensaver \
+      --config-file "$omarchy_path/default/alacritty/screensaver.toml" -e "$renderer"
+    ;;
+  *ghostty*)
+    hypr_exec ghostty --class=org.omarchy.screensaver \
+      --config-file="$omarchy_path/default/ghostty/screensaver" --font-size=18 -e "$renderer"
+    ;;
+  *foot*)
+    hypr_exec foot --app-id=org.omarchy.screensaver \
+      --config="$omarchy_path/default/foot/screensaver.ini" -e "$renderer"
+    ;;
+  *kitty*)
+    hypr_exec kitty --class=org.omarchy.screensaver \
+      --override font_size=18 --override window_padding_width=0 -e "$renderer"
+    ;;
+  esac
+
+  wait_for_screensaver_window || fail "screensaver window did not open on $monitor"
+done
+
+hypr_focus_monitor "$focused"

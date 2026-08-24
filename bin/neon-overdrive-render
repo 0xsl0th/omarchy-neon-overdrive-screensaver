@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+
+# Render the Neon Overdrive artwork inside an Omarchy screensaver terminal.
+# Fullscreen, monitor placement, idle, and lock lifecycle remain owned by
+# Omarchy and the companion launcher.
+
+set -u
+set -o pipefail
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+art_file="$script_dir/../assets/screensaver.txt"
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+frame_file=""
+effect_pid=""
+exiting=false
+
+fail() {
+  printf 'neon-overdrive-render: %s\n' "$*" >&2
+  exit 1
+}
+
+for command in date hostname hyprctl jq mktemp pgrep pkill sed stty ttfx; do
+  command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
+done
+
+[[ -r $art_file ]] || fail "artwork is missing: $art_file"
+[[ -d $runtime_dir && -w $runtime_dir ]] || fail "runtime directory is not writable: $runtime_dir"
+
+# Restrictive permissions and an unpredictable name avoid following a staged
+# symlink if XDG_RUNTIME_DIR is unavailable and /tmp is used.
+umask 077
+frame_file=$(mktemp "$runtime_dir/neon-overdrive-screensaver-${UID}.XXXXXX") ||
+  fail "could not create a temporary frame"
+
+screensaver_in_focus() {
+  hyprctl activewindow -j | jq -e '.class == "org.omarchy.screensaver"' >/dev/null 2>&1
+}
+
+stop_effect() {
+  [[ -n $effect_pid ]] || return 0
+
+  if kill -0 "$effect_pid" 2>/dev/null; then
+    kill "$effect_pid" 2>/dev/null || true
+  fi
+  wait "$effect_pid" 2>/dev/null || true
+  effect_pid=""
+}
+
+exit_screensaver() {
+  $exiting && exit 0
+  exiting=true
+  trap - EXIT SIGINT SIGTERM SIGHUP SIGQUIT
+
+  # Disable terminal mouse reporting and always restore the pointer.
+  printf '\033[?1000l\033[?1006l'
+  hyprctl eval 'hl.config({ cursor = { invisible = false } })' &>/dev/null ||
+    hyprctl keyword cursor:invisible false &>/dev/null || true
+
+  stop_effect
+  [[ -z $frame_file ]] || rm -f -- "$frame_file"
+
+  # Omarchy opens one terminal per monitor. Close only this user's saver
+  # terminals so a wake event dismisses the full multi-monitor presentation.
+  pkill -u "$UID" -f '[o]rg.omarchy.screensaver' 2>/dev/null || true
+  exit 0
+}
+
+trap exit_screensaver EXIT SIGINT SIGTERM SIGHUP SIGQUIT
+
+# Match the deepest violet in the palette and report mouse clicks as terminal
+# input. Any click, key press, or focus loss wakes the session.
+printf '\033]11;rgb:08/03/11\007\033[?1000h\033[?1006h'
+hyprctl eval 'hl.config({ cursor = { invisible = true } })' &>/dev/null ||
+  hyprctl keyword cursor:invisible true &>/dev/null || true
+
+# Foot initially allocates an 80x24 PTY. Wait briefly for compositor sizing
+# before TTFX measures its canvas.
+resize_deadline=$((SECONDS + 2))
+while ((SECONDS < resize_deadline)) && [[ $(stty size 2>/dev/null) == "24 80" ]]; do
+  sleep 0.02
+done
+
+# The renderer can start just before Hyprland focuses the mapped terminal.
+focus_deadline=$((SECONDS + 2))
+while ((SECONDS < focus_deadline)) && ! screensaver_in_focus; do
+  sleep 0.02
+done
+
+# Discard startup bytes before arming wake input.
+for ((input_byte = 0; input_byte < 64; input_byte++)); do
+  IFS= read -rsn1 -t 0.01 _ || break
+done
+
+render_frame() {
+  local host_label
+  printf -v host_label '%-15.15s' "$(hostname -s)"
+
+  {
+    sed "s/{{HOST}}/$host_label/g" "$art_file"
+    printf '\n      N E O N  O V E R D R I V E   //   %s   //   INPUT TO WAKE\n' \
+      "$(date '+%A %Y-%m-%d %H:%M:%S')"
+  } >"$frame_file"
+}
+
+common_args=(
+  -i "$frame_file"
+  --frame-rate 30
+  --terminal-background-color '#080311'
+  --canvas-width 0
+  --canvas-height 0
+  --reuse-canvas
+  --anchor-canvas c
+  --anchor-text c
+  --no-eol
+  --no-restore-cursor
+)
+
+run_effect() {
+  local effect=$1
+  shift
+
+  render_frame
+  ttfx "${common_args[@]}" "$effect" "$@" &
+  effect_pid=$!
+
+  while kill -0 "$effect_pid" 2>/dev/null; do
+    if IFS= read -rsn1 -t 0.10 _ || ! screensaver_in_focus; then
+      exit_screensaver
+    fi
+  done
+
+  wait "$effect_pid" 2>/dev/null || sleep 0.5
+  effect_pid=""
+}
+
+while true; do
+  run_effect synthgrid \
+    --grid-gradient-stops FF2BD6 8B5CF6 00F5FF \
+    --grid-gradient-steps 8 12 \
+    --grid-gradient-direction diagonal \
+    --text-gradient-stops 00F5FF FF2BD6 DFFBFF \
+    --text-gradient-steps 10 16 \
+    --text-gradient-direction horizontal \
+    --max-active-blocks 0.18
+
+  run_effect matrix \
+    --highlight-color DFFBFF \
+    --rain-color-gradient 00F5FF 8B5CF6 FF2BD6 \
+    --rain-fall-delay-range 2-12 \
+    --rain-column-delay-range 2-7 \
+    --rain-time 16 \
+    --symbol-swap-chance 0.02 \
+    --color-swap-chance 0.01 \
+    --final-gradient-stops FF2BD6 00F5FF DFFBFF \
+    --final-gradient-direction diagonal
+
+  run_effect vhstape \
+    --glitch-line-colors DFFBFF FF2BD6 00F5FF DFFBFF \
+    --glitch-wave-colors 00F5FF 8B5CF6 FF2BD6 00F5FF \
+    --noise-colors 080311 171027 4B315D 74698F DFFBFF \
+    --glitch-line-chance 0.08 \
+    --noise-chance 0.006 \
+    --total-glitch-time 360 \
+    --final-gradient-stops FF2BD6 00F5FF DFFBFF \
+    --final-gradient-direction vertical
+
+  run_effect thunderstorm \
+    --lightning-color 00F5FF \
+    --glowing-text-color FF2BD6 \
+    --text-glow-time 8 \
+    --spark-glow-color 8B5CF6 \
+    --spark-glow-time 20 \
+    --storm-time 14 \
+    --final-gradient-stops FF2BD6 00F5FF DFFBFF \
+    --final-gradient-direction vertical
+done
