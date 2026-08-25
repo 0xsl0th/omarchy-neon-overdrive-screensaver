@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Add or remove Neon Overdrive's one managed Omarchy menu entry without
+# Add or remove Neon Overdrive's managed Omarchy menu entries without
 # replacing the user's JSONC file or disturbing unrelated entries/comments.
 
 set -euo pipefail
@@ -102,6 +102,30 @@ open_line=$(awk '/^[[:space:]]*\{[[:space:]]*$/ { print NR; exit }' "$stripped")
   "system.screensaver": {
     "label": "Neon Overdrive Screensaver",
     "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force"
+  },
+  "system.screensaver-random": {
+    "label": "Neon Overdrive: Random Effect",
+    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect random"
+  },
+  "system.screensaver-synthgrid": {
+    "label": "Neon Overdrive: Synth Grid",
+    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect synthgrid"
+  },
+  "system.screensaver-laseretch": {
+    "label": "Neon Overdrive: Laser Etch",
+    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect laseretch"
+  },
+  "system.screensaver-matrix": {
+    "label": "Neon Overdrive: Matrix Rain",
+    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect matrix"
+  },
+  "system.screensaver-vhstape": {
+    "label": "Neon Overdrive: VHS Distortion",
+    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect vhstape"
+  },
+  "system.screensaver-thunderstorm": {
+    "label": "Neon Overdrive: Thunderstorm",
+    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect thunderstorm"
   },
   // END neon-overdrive-screensaver (managed)
 MENU_BLOCK

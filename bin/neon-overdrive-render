@@ -20,6 +20,7 @@ audio_enabled=false
 audio_hot_frames=0
 audio_missed_ticks=0
 exiting=false
+selected_effect=rotate
 
 NEON_AUDIO_ART_LINES=()
 NEON_AUDIO_ART_WIDTH=0
@@ -28,6 +29,30 @@ fail() {
   printf 'neon-overdrive-render: %s\n' "$*" >&2
   exit 1
 }
+
+usage() {
+  printf 'Usage: %s [--effect <rotate|random|synthgrid|laseretch|matrix|vhstape|thunderstorm>]\n' "${0##*/}"
+}
+
+while (($# > 0)); do
+  case $1 in
+  --effect)
+    (($# >= 2)) || fail "--effect requires a value"
+    selected_effect=$2
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *) fail "unknown argument: $1" ;;
+  esac
+done
+
+case $selected_effect in
+rotate | random | synthgrid | laseretch | matrix | vhstape | thunderstorm) ;;
+*) fail "unknown effect: $selected_effect" ;;
+esac
 
 for command in date hostname hyprctl jq mktemp pgrep pkill sed stty ttfx; do
   command -v "$command" >/dev/null 2>&1 || fail "required command is missing: $command"
@@ -436,7 +461,7 @@ run_effect() {
   effect_pid=""
 }
 
-while true; do
+effect_synthgrid() {
   run_effect synthgrid \
     --grid-gradient-stops FF2BD6 8B5CF6 00F5FF \
     --grid-gradient-steps 8 12 \
@@ -445,7 +470,24 @@ while true; do
     --text-gradient-steps 10 16 \
     --text-gradient-direction horizontal \
     --max-active-blocks 0.18
+}
 
+effect_laseretch() {
+  run_effect laseretch \
+    --etch-pattern algorithm \
+    --etch-speed 2 \
+    --etch-delay 1 \
+    --cool-gradient-stops DFFBFF 00F5FF 8B5CF6 \
+    --laser-gradient-stops DFFBFF FF2BD6 00F5FF \
+    --spark-gradient-stops DFFBFF 00F5FF FF2BD6 080311 \
+    --spark-cooling-frames 6 \
+    --final-gradient-stops FF2BD6 8B5CF6 00F5FF DFFBFF \
+    --final-gradient-steps 8 12 \
+    --final-gradient-frames 4 \
+    --final-gradient-direction diagonal
+}
+
+effect_matrix() {
   run_effect matrix \
     --highlight-color DFFBFF \
     --rain-color-gradient 00F5FF 8B5CF6 FF2BD6 \
@@ -456,7 +498,9 @@ while true; do
     --color-swap-chance 0.01 \
     --final-gradient-stops FF2BD6 00F5FF DFFBFF \
     --final-gradient-direction diagonal
+}
 
+effect_vhstape() {
   run_effect vhstape \
     --glitch-line-colors DFFBFF FF2BD6 00F5FF DFFBFF \
     --glitch-wave-colors 00F5FF 8B5CF6 FF2BD6 00F5FF \
@@ -466,7 +510,9 @@ while true; do
     --total-glitch-time 360 \
     --final-gradient-stops FF2BD6 00F5FF DFFBFF \
     --final-gradient-direction vertical
+}
 
+effect_thunderstorm() {
   run_effect thunderstorm \
     --lightning-color 00F5FF \
     --glowing-text-color FF2BD6 \
@@ -476,4 +522,19 @@ while true; do
     --storm-time 14 \
     --final-gradient-stops FF2BD6 00F5FF DFFBFF \
     --final-gradient-direction vertical
+}
+
+effect_names=(synthgrid laseretch matrix vhstape thunderstorm)
+
+while true; do
+  if [[ $selected_effect == rotate ]]; then
+    for effect_name in "${effect_names[@]}"; do
+      "effect_$effect_name"
+    done
+  elif [[ $selected_effect == random ]]; then
+    effect_name=${effect_names[RANDOM % ${#effect_names[@]}]}
+    "effect_$effect_name"
+  else
+    "effect_$selected_effect"
+  fi
 done

@@ -76,6 +76,21 @@ Set idle timing in `$HOME/.config/omarchy/shell.json`; values are seconds:
 Use Omarchy's Stay Awake control when the idle service should be temporarily
 disabled. The plugin deliberately shares Omarchy's existing stay-awake state.
 
+### Effect selection
+
+The default screensaver rotates through every effect. Preview a specific effect,
+choose a new random effect after each completed animation, or explicitly select
+the rotation from the command line:
+
+```bash
+bin/neon-overdrive-launch force --effect laseretch
+bin/neon-overdrive-launch force --effect random
+bin/neon-overdrive-launch force --effect rotate
+```
+
+Available named effects are `synthgrid`, `laseretch`, `matrix`, `vhstape`, and
+`thunderstorm`. The managed Omarchy menu includes shortcuts for every mode.
+
 ### Music-reactive mode
 
 The renderer starts Cava as an optional child process with an isolated config.

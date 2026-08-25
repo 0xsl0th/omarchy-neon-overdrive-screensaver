@@ -9,11 +9,43 @@ set -o pipefail
 script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 renderer="$script_dir/neon-overdrive-render"
 omarchy_path="${OMARCHY_PATH:-/usr/share/omarchy}"
+force=false
+selected_effect=rotate
 
 fail() {
   printf 'neon-overdrive-launch: %s\n' "$*" >&2
   exit 1
 }
+
+usage() {
+  printf 'Usage: %s [force] [--effect <rotate|random|synthgrid|laseretch|matrix|vhstape|thunderstorm>]\n' "${0##*/}"
+}
+
+while (($# > 0)); do
+  case $1 in
+  force)
+    force=true
+    shift
+    ;;
+  --effect)
+    (($# >= 2)) || fail "--effect requires a value"
+    selected_effect=$2
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    fail "unknown argument: $1"
+    ;;
+  esac
+done
+
+case $selected_effect in
+rotate | random | synthgrid | laseretch | matrix | vhstape | thunderstorm) ;;
+*) fail "unknown effect: $selected_effect" ;;
+esac
 
 for command in hyprctl jq omarchy-cmd-missing omarchy-hyprland-monitor-focused \
   omarchy-notification-send omarchy-toggle-enabled pgrep socat xdg-terminal-exec; do
@@ -30,7 +62,7 @@ pgrep -u "$UID" -f '[o]rg.omarchy.screensaver' >/dev/null && exit 0
 
 # Respect Omarchy's toggle during idle launches while retaining explicit
 # previews through the `force` argument.
-if omarchy-toggle-enabled screensaver-off && [[ ${1:-} != "force" ]]; then
+if omarchy-toggle-enabled screensaver-off && ! $force; then
   exit 1
 fi
 
@@ -83,19 +115,23 @@ for monitor in "${monitors[@]}"; do
   case $terminal in
   *Alacritty*)
     hypr_exec alacritty --class=org.omarchy.screensaver \
-      --config-file "$omarchy_path/default/alacritty/screensaver.toml" -e "$renderer"
+      --config-file "$omarchy_path/default/alacritty/screensaver.toml" -e "$renderer" \
+      --effect "$selected_effect"
     ;;
   *ghostty*)
     hypr_exec ghostty --class=org.omarchy.screensaver \
-      --config-file="$omarchy_path/default/ghostty/screensaver" --font-size=18 -e "$renderer"
+      --config-file="$omarchy_path/default/ghostty/screensaver" --font-size=18 -e "$renderer" \
+      --effect "$selected_effect"
     ;;
   *foot*)
     hypr_exec foot --app-id=org.omarchy.screensaver \
-      --config="$omarchy_path/default/foot/screensaver.ini" -e "$renderer"
+      --config="$omarchy_path/default/foot/screensaver.ini" -e "$renderer" \
+      --effect "$selected_effect"
     ;;
   *kitty*)
     hypr_exec kitty --class=org.omarchy.screensaver \
-      --override font_size=18 --override window_padding_width=0 -e "$renderer"
+      --override font_size=18 --override window_padding_width=0 -e "$renderer" \
+      --effect "$selected_effect"
     ;;
   esac
 

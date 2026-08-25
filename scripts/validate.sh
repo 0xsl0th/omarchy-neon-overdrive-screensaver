@@ -36,7 +36,7 @@ bash -n install.sh uninstall.sh bin/neon-overdrive-launch \
 jq -e '
   .schemaVersion == 1 and
   .id == "neon-overdrive.idle" and
-  .version == "1.1.0" and
+  .version == "1.2.0" and
   .kinds == ["service"] and
   .entryPoints.service == "Service.qml" and
   .omarchy.clonedFrom == "omarchy.idle"
