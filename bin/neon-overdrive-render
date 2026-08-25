@@ -9,10 +9,20 @@ set -o pipefail
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 art_file="$script_dir/../assets/screensaver.txt"
+cava_config="${NEON_OVERDRIVE_CAVA_CONFIG:-$script_dir/../assets/cava-reactive.conf}"
+audio_model="$script_dir/../lib/audio-model.sh"
 runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
 frame_file=""
 effect_pid=""
+cava_pid=""
+cava_fd=""
+audio_enabled=false
+audio_hot_frames=0
+audio_missed_ticks=0
 exiting=false
+
+NEON_AUDIO_ART_LINES=()
+NEON_AUDIO_ART_WIDTH=0
 
 fail() {
   printf 'neon-overdrive-render: %s\n' "$*" >&2
@@ -24,7 +34,11 @@ for command in date hostname hyprctl jq mktemp pgrep pkill sed stty ttfx; do
 done
 
 [[ -r $art_file ]] || fail "artwork is missing: $art_file"
+[[ -r $audio_model ]] || fail "audio model is missing: $audio_model"
 [[ -d $runtime_dir && -w $runtime_dir ]] || fail "runtime directory is not writable: $runtime_dir"
+
+# shellcheck source=../lib/audio-model.sh
+source "$audio_model"
 
 # Restrictive permissions and an unpredictable name avoid following a staged
 # symlink if XDG_RUNTIME_DIR is unavailable and /tmp is used.
@@ -46,17 +60,292 @@ stop_effect() {
   effect_pid=""
 }
 
+audio_probe_running() {
+  [[ -n $cava_pid ]] || return 1
+  kill -0 "$cava_pid" 2>/dev/null
+}
+
+stop_audio_probe() {
+  local attempt
+  audio_enabled=false
+
+  if [[ -n $cava_fd ]]; then
+    exec {cava_fd}<&- 2>/dev/null || true
+    cava_fd=""
+  fi
+
+  if [[ -n $cava_pid ]]; then
+    if audio_probe_running; then
+      kill "$cava_pid" 2>/dev/null || true
+      for ((attempt = 0; attempt < 20; attempt++)); do
+        audio_probe_running || break
+        sleep 0.025
+      done
+      if audio_probe_running; then
+        kill -KILL "$cava_pid" 2>/dev/null || true
+      fi
+    fi
+    wait "$cava_pid" 2>/dev/null || true
+    cava_pid=""
+  fi
+}
+
+start_audio_probe() {
+  local coproc_stdin
+  [[ ${NEON_OVERDRIVE_AUDIO:-auto} != "off" ]] || return 0
+  command -v cava >/dev/null 2>&1 || return 0
+  [[ -r $cava_config ]] || return 0
+
+  coproc NEON_OVERDRIVE_CAVA {
+    if command -v setpriv >/dev/null 2>&1; then
+      exec setpriv --pdeathsig TERM cava -p "$cava_config" </dev/null 2>/dev/null
+    else
+      exec cava -p "$cava_config" </dev/null 2>/dev/null
+    fi
+  }
+  cava_pid=${NEON_OVERDRIVE_CAVA_PID:-}
+  cava_fd=${NEON_OVERDRIVE_CAVA[0]:-}
+  coproc_stdin=${NEON_OVERDRIVE_CAVA[1]:-}
+  if [[ -n $coproc_stdin ]]; then
+    exec {coproc_stdin}>&- 2>/dev/null || true
+  fi
+  if [[ -z $cava_pid || -z $cava_fd ]]; then
+    stop_audio_probe
+    return 0
+  fi
+  audio_enabled=true
+}
+
+read_audio_frame() {
+  $audio_enabled || return 1
+
+  if neon_audio_read_fd "$cava_fd" 32; then
+    return 0
+  fi
+
+  # Status 1 is EOF/closed FD. Values above 128 are ordinary timeouts.
+  if ((NEON_AUDIO_READ_STATUS == 1)); then
+    stop_audio_probe
+  fi
+  return 1
+}
+
+audio_probe_tick() {
+  if ! read_audio_frame; then
+    audio_missed_ticks=$((audio_missed_ticks + 1))
+    if ((audio_missed_ticks >= 3)); then
+      audio_hot_frames=0
+    fi
+    return 1
+  fi
+
+  audio_missed_ticks=0
+
+  if ((NEON_AUDIO_ACTIVE)); then
+    audio_hot_frames=$((audio_hot_frames + 1))
+  else
+    audio_hot_frames=0
+  fi
+  return 0
+}
+
+prepare_audio_art() {
+  local host_label line
+  host_label=$(hostname -s)
+  host_label=${host_label//[^[:alnum:]._-]/_}
+  printf -v host_label '%-15.15s' "$host_label"
+
+  NEON_AUDIO_ART_LINES=()
+  NEON_AUDIO_ART_WIDTH=0
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line//'{{HOST}}'/$host_label}
+    NEON_AUDIO_ART_LINES+=("$line")
+    ((${#line} > NEON_AUDIO_ART_WIDTH)) && NEON_AUDIO_ART_WIDTH=${#line}
+  done <"$art_file"
+}
+
+repeat_cell() {
+  local width=$1 character=$2
+  printf -v REPLY '%*s' "$width" ''
+  REPLY=${REPLY// /$character}
+}
+
+render_audio_frame() {
+  local rows=$1 cols=$2 spectrum_height max_art_rows usable_cols
+  local content_height top index line visible left padding phase scale
+  local red green blue color bold frame clear_line reset sync_start sync_end
+  local row threshold cell_width cell_fill spectrum_width spectrum_left
+  local level character segment ratio status status_left
+  local -a art_lines=("${NEON_AUDIO_ART_LINES[@]}") compact_art=()
+
+  ((rows >= 44)) && spectrum_height=8 || spectrum_height=5
+  ((rows < 34)) && spectrum_height=3
+  usable_cols=$((cols > 4 ? cols - 2 : cols))
+  max_art_rows=$((rows - spectrum_height - 3))
+  ((max_art_rows < 4)) && max_art_rows=4
+
+  if ((${#art_lines[@]} > max_art_rows)); then
+    for line in "${art_lines[@]}"; do
+      [[ $line =~ ^║[[:space:]]*║$ ]] || compact_art+=("$line")
+    done
+    art_lines=("${compact_art[@]}")
+  fi
+  if ((${#art_lines[@]} > max_art_rows)); then
+    art_lines=("${art_lines[@]:0:max_art_rows-1}" "${NEON_AUDIO_ART_LINES[-1]}")
+  fi
+
+  content_height=$((${#art_lines[@]} + spectrum_height + 2))
+  top=$(((rows - content_height) / 2))
+  ((top < 0)) && top=0
+
+  clear_line=$'\033[2K'
+  reset=$'\033[0m'
+  sync_start=$'\033[?2026h\033[H'
+  sync_end=$'\033[?2026l'
+  frame=$sync_start
+  for ((row = 0; row < top; row++)); do
+    frame+="$clear_line"$'\n'
+  done
+
+  scale=$((55 + NEON_AUDIO_ENERGY * 45 / 100))
+  ((NEON_AUDIO_BEAT)) && scale=100
+  ((NEON_AUDIO_BEAT)) && bold=$'\033[1m' || bold=''
+
+  for ((index = 0; index < ${#art_lines[@]}; index++)); do
+    line=${art_lines[index]}
+    visible=${line:0:usable_cols}
+    left=$(((cols - ${#visible}) / 2))
+    ((left < 0)) && left=0
+    printf -v padding '%*s' "$left" ''
+
+    phase=$((index % 3))
+    case $phase in
+    0) red=255 green=43 blue=214 ;;
+    1) red=139 green=92 blue=246 ;;
+    *) red=0 green=245 blue=255 ;;
+    esac
+    red=$((red * scale / 100))
+    green=$((green * scale / 100))
+    blue=$((blue * scale / 100))
+    printf -v color '\033[38;2;%d;%d;%dm' "$red" "$green" "$blue"
+    frame+="$clear_line$padding$bold$color$visible$reset"$'\n'
+  done
+
+  cell_width=$((usable_cols / NEON_AUDIO_BAR_COUNT))
+  ((cell_width < 1)) && cell_width=1
+  ((cell_width > 4)) && cell_width=4
+  cell_fill=$((cell_width > 1 ? cell_width - 1 : 1))
+  spectrum_width=$((cell_width * NEON_AUDIO_BAR_COUNT))
+  spectrum_left=$(((cols - spectrum_width) / 2))
+  ((spectrum_left < 0)) && spectrum_left=0
+  printf -v padding '%*s' "$spectrum_left" ''
+
+  for ((row = spectrum_height; row > 0; row--)); do
+    threshold=$(((row * 100 + spectrum_height - 1) / spectrum_height))
+    frame+="$clear_line$padding"
+    for ((index = 0; index < NEON_AUDIO_BAR_COUNT; index++)); do
+      level=${NEON_AUDIO_LEVELS[index]}
+      if ((level >= threshold)); then
+        character='█'
+      elif ((level + 100 / spectrum_height / 2 >= threshold)); then
+        character='▄'
+      else
+        character=' '
+      fi
+
+      ratio=$((index * 100 / (NEON_AUDIO_BAR_COUNT - 1)))
+      if ((ratio < 50)); then
+        red=$((255 - (255 - 139) * ratio / 50))
+        green=$((43 + (92 - 43) * ratio / 50))
+        blue=$((214 + (246 - 214) * ratio / 50))
+      else
+        red=$((139 - 139 * (ratio - 50) / 50))
+        green=$((92 + (245 - 92) * (ratio - 50) / 50))
+        blue=$((246 + (255 - 246) * (ratio - 50) / 50))
+      fi
+      scale=$((50 + level / 2))
+      red=$((red * scale / 100))
+      green=$((green * scale / 100))
+      blue=$((blue * scale / 100))
+      printf -v color '\033[38;2;%d;%d;%dm' "$red" "$green" "$blue"
+      repeat_cell "$cell_fill" "$character"
+      segment=$REPLY
+      frame+="$color$segment$reset"
+      ((cell_width > cell_fill)) && frame+=' '
+    done
+    frame+=$'\n'
+  done
+
+  printf -v status '◆ AUDIO LINK: LIVE ◆  BASS %03d%%  MID %03d%%  HIGH %03d%%  ENERGY %03d%%' \
+    "$NEON_AUDIO_BASS" "$NEON_AUDIO_MID" "$NEON_AUDIO_HIGH" "$NEON_AUDIO_ENERGY"
+  ((NEON_AUDIO_BEAT)) && status+='  ◈ BEAT'
+  status=${status:0:usable_cols}
+  status_left=$(((cols - ${#status}) / 2))
+  ((status_left < 0)) && status_left=0
+  printf -v padding '%*s' "$status_left" ''
+  printf -v color '\033[1;38;2;%d;%d;%dm' 223 251 255
+  frame+="$clear_line$padding$color$status$reset$sync_end"
+
+  printf '%s' "$frame"
+}
+
+run_audio_visualizer() {
+  local rows cols silence_ticks=0 stale_ticks=0 focus_ticks=0
+  read -r rows cols < <(stty size 2>/dev/null) || true
+  if [[ ! $rows =~ ^[0-9]+$ || ! $cols =~ ^[0-9]+$ ]] || ((rows < 10 || cols < 20)); then
+    rows=40
+    cols=100
+  fi
+
+  printf '\033[2J\033[H'
+  while $audio_enabled; do
+    render_audio_frame "$rows" "$cols"
+
+    if IFS= read -rsn1 -t 0.04 _; then
+      exit_screensaver
+    fi
+    focus_ticks=$((focus_ticks + 1))
+    if ((focus_ticks >= 4)); then
+      focus_ticks=0
+      screensaver_in_focus || exit_screensaver
+    fi
+
+    if read_audio_frame; then
+      stale_ticks=0
+      if ((NEON_AUDIO_ACTIVE)); then
+        silence_ticks=0
+      else
+        ((silence_ticks++))
+      fi
+    else
+      ((stale_ticks++))
+      ((silence_ticks++))
+      neon_audio_decay 82
+    fi
+
+    $audio_enabled || break
+    if ((silence_ticks >= 48 || stale_ticks >= 48)); then
+      break
+    fi
+  done
+
+  audio_hot_frames=0
+  audio_missed_ticks=0
+  printf '\033[0m\033[2J\033[H'
+}
+
 exit_screensaver() {
   $exiting && exit 0
   exiting=true
   trap - EXIT SIGINT SIGTERM SIGHUP SIGQUIT
 
   # Disable terminal mouse reporting and always restore the pointer.
-  printf '\033[?1000l\033[?1006l'
+  printf '\033[?2026l\033[0m\033[?25h\033[?1000l\033[?1006l'
   hyprctl eval 'hl.config({ cursor = { invisible = false } })' &>/dev/null ||
     hyprctl keyword cursor:invisible false &>/dev/null || true
 
   stop_effect
+  stop_audio_probe
   [[ -z $frame_file ]] || rm -f -- "$frame_file"
 
   # Omarchy opens one terminal per monitor. Close only this user's saver
@@ -91,6 +380,9 @@ for ((input_byte = 0; input_byte < 64; input_byte++)); do
   IFS= read -rsn1 -t 0.01 _ || break
 done
 
+prepare_audio_art
+start_audio_probe
+
 render_frame() {
   local host_label
   printf -v host_label '%-15.15s' "$(hostname -s)"
@@ -116,7 +408,7 @@ common_args=(
 )
 
 run_effect() {
-  local effect=$1
+  local effect=$1 focus_ticks=0
   shift
 
   render_frame
@@ -124,8 +416,19 @@ run_effect() {
   effect_pid=$!
 
   while kill -0 "$effect_pid" 2>/dev/null; do
-    if IFS= read -rsn1 -t 0.10 _ || ! screensaver_in_focus; then
+    if IFS= read -rsn1 -t 0.04 _; then
       exit_screensaver
+    fi
+    focus_ticks=$((focus_ticks + 1))
+    if ((focus_ticks >= 4)); then
+      focus_ticks=0
+      screensaver_in_focus || exit_screensaver
+    fi
+
+    if audio_probe_tick && ((audio_hot_frames >= 3)); then
+      stop_effect
+      run_audio_visualizer
+      return 0
     fi
   done
 

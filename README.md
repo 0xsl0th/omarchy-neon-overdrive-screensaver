@@ -2,9 +2,10 @@
 
 Neon Overdrive is a multi-monitor terminal screensaver and idle-service clone
 for Omarchy. It cycles through a synth grid, matrix rain, VHS distortion, and a
-thunderstorm in a cyan/magenta night-city palette. Keyboard input, mouse input,
-or focus loss wakes every saver window; Omarchy retains responsibility for idle
-timing and locking.
+thunderstorm in a cyan/magenta night-city palette. When music is playing, it
+automatically switches to a live Cava spectrum that makes the skyline, glow,
+and bass pulse together. Keyboard input, mouse input, or focus loss wakes every
+saver window; Omarchy retains responsibility for idle timing and locking.
 
 This plugin runs as unsandboxed code inside the long-lived Omarchy shell. Review
 the repository before enabling it.
@@ -15,9 +16,16 @@ the repository before enabling it.
 - `ttfx` 0.3.2 or newer
 - `bash`, `jq`, `socat`, `procps-ng`, and `xdg-terminal-exec`
 - Alacritty, Foot, Ghostty, or Kitty as the selected terminal
+- Optional: Cava 0.10.7 or newer for music-reactive mode
 
-The tested baseline is Omarchy 4.0.0-1, Hyprland 0.56.2, and TTFX 0.3.2.
-Older releases have not been validated.
+The tested baseline is Omarchy 4.0.0-1, Hyprland 0.56.2, TTFX 0.3.2, and
+Cava 0.10.7. Older releases have not been validated.
+
+Install the optional visualizer through Omarchy:
+
+```bash
+omarchy pkg add cava
+```
 
 ## Install
 
@@ -68,6 +76,25 @@ Set idle timing in `$HOME/.config/omarchy/shell.json`; values are seconds:
 Use Omarchy's Stay Awake control when the idle service should be temporarily
 disabled. The plugin deliberately shares Omarchy's existing stay-awake state.
 
+### Music-reactive mode
+
+The renderer starts Cava as an optional child process with an isolated config.
+It asks PipeWire for its automatic source, which Cava normally resolves to the
+current default output. Three active frames move the screensaver into its neon
+spectrum mode; about two seconds of silence, a stalled audio stream, or a Cava
+failure returns it to the normal TTFX sequence. The owned Cava process is
+terminated by its exact PID when the screensaver closes, so unrelated Cava
+visualizers such as a bar widget are left alone.
+
+The bundled config asks for PipeWire's automatic default-output source and does
+not explicitly select a microphone. Cava analyzes that stream in memory; the
+renderer receives only derived frequency magnitudes. Neither component saves or
+transmits audio. Each monitor runs its own lightweight 18-bar, 24 FPS Cava
+client. Set `NEON_OVERDRIVE_AUDIO=off` in the graphical session environment to
+disable audio detection completely. An alternate isolated Cava configuration
+can be selected with `NEON_OVERDRIVE_CAVA_CONFIG=/path/to/config`; review a
+custom config because it can select a different input source.
+
 ## Update
 
 ```bash
@@ -104,11 +131,15 @@ menu removal, and whitespace errors.
 manifest.json                 Omarchy plugin metadata
 Service.qml                   Idle and lock lifecycle service
 IdleModel.js                  Pure idle/event helpers
-bin/neon-overdrive-launch     Multi-monitor terminal launcher
-bin/neon-overdrive-render     TTFX renderer and wake handling
+assets/cava-reactive.conf     Isolated PipeWire/raw Cava configuration
 assets/screensaver.txt        Original terminal artwork
+bin/neon-overdrive-launch     Multi-monitor terminal launcher
+bin/neon-overdrive-render     TTFX/audio renderer and wake handling
+lib/audio-model.sh            Strict audio parsing and signal calculations
 scripts/menu-integration.sh   Managed JSONC menu integration
 scripts/validate.sh           Offline-safe validation suite
+tests/audio-model.test.sh     Offline audio parser and signal tests
+tests/renderer-audio.test.py  PTY renderer handoff and cleanup test
 install.sh / uninstall.sh     Installation lifecycle
 ```
 

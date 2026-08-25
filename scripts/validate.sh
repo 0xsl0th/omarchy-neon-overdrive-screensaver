@@ -14,8 +14,9 @@ fail() {
 }
 
 required_files=(
-  manifest.json Service.qml IdleModel.js assets/screensaver.txt
+  manifest.json Service.qml IdleModel.js assets/screensaver.txt assets/cava-reactive.conf
   bin/neon-overdrive-launch bin/neon-overdrive-render
+  lib/audio-model.sh tests/audio-model.test.sh tests/renderer-audio.test.py
   install.sh uninstall.sh scripts/menu-integration.sh scripts/validate.sh
   README.md LICENSE NOTICE.md .gitignore tests/idle-model.test.js
 )
@@ -29,11 +30,13 @@ for script in install.sh uninstall.sh bin/neon-overdrive-launch \
 done
 
 bash -n install.sh uninstall.sh bin/neon-overdrive-launch \
-  bin/neon-overdrive-render scripts/menu-integration.sh scripts/validate.sh
+  bin/neon-overdrive-render lib/audio-model.sh tests/audio-model.test.sh \
+  scripts/menu-integration.sh scripts/validate.sh
 
 jq -e '
   .schemaVersion == 1 and
   .id == "neon-overdrive.idle" and
+  .version == "1.1.0" and
   .kinds == ["service"] and
   .entryPoints.service == "Service.qml" and
   .omarchy.clonedFrom == "omarchy.idle"
@@ -57,6 +60,26 @@ if command -v node >/dev/null 2>&1; then
   node tests/idle-model.test.js
 else
   printf 'validate: node unavailable; skipped IdleModel unit tests\n' >&2
+fi
+
+bash tests/audio-model.test.sh
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 -B tests/renderer-audio.test.py
+else
+  printf 'validate: python3 unavailable; skipped renderer integration test\n' >&2
+fi
+
+for setting in \
+  'bars = 18' 'framerate = 24' 'method = pipewire' 'source = auto' \
+  'virtual = 1' 'method = raw' 'channels = mono' \
+  'raw_target = /dev/stdout' 'data_format = ascii' \
+  'ascii_max_range = 100' 'bar_delimiter = 59' 'frame_delimiter = 10'; do
+  grep -Fqx "$setting" assets/cava-reactive.conf || fail "Cava config is missing: $setting"
+done
+
+if rg -n 'pkill.*cava' bin lib; then
+  fail "Cava must be terminated by its tracked PID, never with pkill"
 fi
 
 fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/neon-overdrive-validation.XXXXXX")
