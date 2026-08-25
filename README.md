@@ -83,13 +83,26 @@ choose a new random effect after each completed animation, or explicitly select
 the rotation from the command line:
 
 ```bash
+bin/neon-overdrive-launch force --effect synthgrid
 bin/neon-overdrive-launch force --effect laseretch
+bin/neon-overdrive-launch force --effect matrix
+bin/neon-overdrive-launch force --effect vhstape
+bin/neon-overdrive-launch force --effect thunderstorm
 bin/neon-overdrive-launch force --effect random
 bin/neon-overdrive-launch force --effect rotate
 ```
 
-Available named effects are `synthgrid`, `laseretch`, `matrix`, `vhstape`, and
-`thunderstorm`. The managed Omarchy menu includes shortcuts for every mode.
+| Option | Description |
+|---|---|
+| `synthgrid` | Builds the artwork through a glowing retro-futuristic grid. |
+| `laseretch` | Uses a bright moving laser and cooling sparks to etch the artwork onto the screen. |
+| `matrix` | Reveals the artwork through cascading cyan, violet, and magenta digital rain. |
+| `vhstape` | Distorts the artwork with analog noise, horizontal glitches, and VHS-style color shifts. |
+| `thunderstorm` | Illuminates the artwork with lightning flashes, glowing text, and electrical sparks. |
+| `random` | Selects another effect at random whenever the current animation finishes. |
+| `rotate` | Runs every effect in order and repeats the complete sequence; this is the default. |
+
+The managed Omarchy menu includes shortcuts for every mode.
 
 ### Music-reactive mode
 
