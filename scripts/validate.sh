@@ -14,7 +14,9 @@ fail() {
 }
 
 required_files=(
-  manifest.json Service.qml IdleModel.js assets/screensaver.txt assets/cava-reactive.conf
+  manifest.json Plugin.qml Service.qml IdleModel.js preview.webp
+  promo/neon-overdrive-promo-github.mp4 promo/audio/blade-runner-end-titles-32s.flac
+  assets/screensaver.txt assets/cava-reactive.conf
   bin/neon-overdrive-launch bin/neon-overdrive-render
   lib/audio-model.sh tests/audio-model.test.sh tests/renderer-audio.test.py
   install.sh uninstall.sh scripts/menu-integration.sh scripts/validate.sh
@@ -35,9 +37,10 @@ bash -n install.sh uninstall.sh bin/neon-overdrive-launch \
 
 jq -e '
   .schemaVersion == 1 and
-  .id == "neon-overdrive.idle" and
-  .version == "1.2.0" and
-  .kinds == ["service"] and
+  .id == "io.github.0xsl0th.neon-overdrive" and
+  .version == "2.0.0" and
+  .kinds == ["overlay", "service"] and
+  .entryPoints.overlay == "Plugin.qml" and
   .entryPoints.service == "Service.qml" and
   .omarchy.clonedFrom == "omarchy.idle"
 ' manifest.json >/dev/null
@@ -54,6 +57,19 @@ link=$(find . -path ./.git -prune -o -type l -print -quit)
 if rg -n '(/home/[[:alnum:]_.-]+|omarchy-quattro|sloth\.idle)' \
   --glob '!scripts/validate.sh' .; then
   fail "machine-specific value found"
+fi
+
+if rg -n 'neon-overdrive\.idle' --glob '!scripts/validate.sh' .; then
+  fail "legacy plugin id found"
+fi
+
+if command -v ffprobe >/dev/null 2>&1; then
+  duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \
+    promo/neon-overdrive-promo-github.mp4)
+  awk -v duration="$duration" 'BEGIN { exit !(duration >= 31.9 && duration <= 32.1) }' ||
+    fail "GitHub promo must be 32 seconds (found ${duration}s)"
+else
+  printf 'validate: ffprobe unavailable; skipped promo duration check\n' >&2
 fi
 
 if command -v node >/dev/null 2>&1; then

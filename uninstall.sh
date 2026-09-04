@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-plugin_id="neon-overdrive.idle"
+plugin_id="io.github.0xsl0th.neon-overdrive"
 project_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 plugin_dir="${HOME:?HOME is not set}/.config/omarchy/plugins/$plugin_id"
 force=false

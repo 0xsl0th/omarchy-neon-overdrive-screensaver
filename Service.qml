@@ -8,10 +8,15 @@ import "IdleModel.js" as IdleModel
 Item {
   id: root
 
-  // Injected by omarchy-shell (the first-party service loader).
+  // Injected by the Omarchy shell plugin loader.
   property var shell: null
+  property var manifest: null
 
   readonly property string home: Quickshell.env("HOME")
+  readonly property string pluginId: manifest && manifest.id ? String(manifest.id) : "io.github.0xsl0th.neon-overdrive"
+  readonly property string pluginRoot: manifest && manifest.__sourceDir
+    ? String(manifest.__sourceDir)
+    : home + "/.config/omarchy/plugins/" + pluginId
   readonly property string stayAwakeStateDir: home + "/.local/state/omarchy/indicators"
   readonly property string stayAwakeStatePath: stayAwakeStateDir + "/stay-awake"
   readonly property int defaultScreensaverSeconds: 150
@@ -62,10 +67,36 @@ Item {
     return true
   }
 
+  function runProcessArgs(process, label, args) {
+    if (process.running) {
+      logEvent("process-skip", label + " already running")
+      return false
+    }
+    logEvent("process-start", label + " " + args.join(" "))
+    process.command = args
+    process.running = true
+    return true
+  }
+
+  function normalizedEffect(value) {
+    var effect = String(value || "rotate")
+    var effects = ["rotate", "random", "synthgrid", "laseretch", "matrix", "vhstape", "thunderstorm"]
+    return effects.indexOf(effect) >= 0 ? effect : "rotate"
+  }
+
+  function startPreview(effect) {
+    return runProcessArgs(previewProcess, "preview", [
+      root.pluginRoot + "/bin/neon-overdrive-launch",
+      "force",
+      "--effect",
+      normalizedEffect(effect)
+    ])
+  }
+
   function launchScreensaver() {
     root.screensaverStartedThisCycle = true
     screensaverLaunchGraceTimer.restart()
-    runProcess(screensaverProcess, "screensaver", "[[ $(omarchy-shell lock isLocked 2>/dev/null) == \"true\" ]] || \"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\"")
+    runProcess(screensaverProcess, "screensaver", "[[ $(omarchy-shell lock isLocked 2>/dev/null) == \"true\" ]] || \"" + root.pluginRoot + "/bin/neon-overdrive-launch\"")
   }
 
   function lockSystem(reason) {
@@ -198,6 +229,7 @@ Item {
       },
       processes: {
         screensaver: screensaverProcess.running,
+        preview: previewProcess.running,
         lock: lockProcess.running,
         wake: wakeProcess.running
       },
@@ -288,6 +320,10 @@ Item {
   Process {
     id: screensaverProcess
     onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "screensaver exitCode=" + exitCode + " status=" + exitStatus) }
+  }
+  Process {
+    id: previewProcess
+    onExited: function(exitCode, exitStatus) { root.logEvent("process-exit", "preview exitCode=" + exitCode + " status=" + exitStatus) }
   }
   Process {
     id: lockProcess

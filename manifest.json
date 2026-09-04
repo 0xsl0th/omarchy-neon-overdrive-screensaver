@@ -1,15 +1,16 @@
 {
   "schemaVersion": 1,
-  "id": "neon-overdrive.idle",
-  "name": "Neon Overdrive Idle",
-  "version": "1.2.0",
-  "author": "Neon Overdrive contributors",
-  "description": "Omarchy idle lifecycle with the Neon Overdrive screensaver renderer.",
+  "id": "io.github.0xsl0th.neon-overdrive",
+  "name": "Neon Overdrive",
+  "version": "2.0.0",
+  "author": "0xsl0th",
+  "description": "A neon animated screensaver for Omarchy Quattro.",
   "kinds": [
+    "overlay",
     "service"
   ],
-  "keepLoaded": true,
   "entryPoints": {
+    "overlay": "Plugin.qml",
     "service": "Service.qml"
   },
   "omarchy": {

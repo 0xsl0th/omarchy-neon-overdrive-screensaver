@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# Install the Git checkout as a first-class Omarchy plugin, then enable its
-# idle service and add the managed menu preview entry.
+# Install the Git checkout as an Omarchy plugin, enable it, and optionally add
+# the managed menu preview entries.
 
 set -euo pipefail
 
-plugin_id="neon-overdrive.idle"
-default_source="git@github.com:0xsl0th/omarchy-neon-overdrive-screensaver.git"
+plugin_id="io.github.0xsl0th.neon-overdrive"
+default_source="https://github.com/0xsl0th/omarchy-neon-overdrive-screensaver.git"
 project_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 plugin_dir="${HOME:?HOME is not set}/.config/omarchy/plugins/$plugin_id"
 source_url=""
@@ -19,10 +19,10 @@ fail() {
 
 usage() {
   cat <<USAGE
-Usage: ./install.sh [--source <git-url>]
+Usage: ./install.sh [--source <git-url>] [--activate-only]
 
 Installs and enables $plugin_id. When run from the installed plugin directory,
-the script only reconciles activation and menu integration.
+the script only reconciles activation and optional menu integration.
 USAGE
 }
 
@@ -96,6 +96,6 @@ if [[ -z $source_url ]]; then
 fi
 [[ -n $source_url ]] || source_url=$default_source
 
-omarchy plugin add "$source_url" --yes
+omarchy plugin add "$source_url" --enable --yes
 [[ -x $plugin_dir/install.sh ]] || fail "plugin install did not produce $plugin_dir"
 exec "$plugin_dir/install.sh" --activate-only

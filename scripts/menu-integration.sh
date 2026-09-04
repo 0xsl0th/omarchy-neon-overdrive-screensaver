@@ -101,31 +101,31 @@ open_line=$(awk '/^[[:space:]]*\{[[:space:]]*$/ { print NR; exit }' "$stripped")
   // BEGIN neon-overdrive-screensaver (managed)
   "system.screensaver": {
     "label": "Neon Overdrive Screensaver",
-    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force"
+    "action": "omarchy-shell shell summon io.github.0xsl0th.neon-overdrive '{}'"
   },
   "system.screensaver-random": {
     "label": "Neon Overdrive: Random Effect",
-    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect random"
+    "action": "omarchy-shell shell summon io.github.0xsl0th.neon-overdrive '{\"effect\":\"random\"}'"
   },
   "system.screensaver-synthgrid": {
     "label": "Neon Overdrive: Synth Grid",
-    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect synthgrid"
+    "action": "omarchy-shell shell summon io.github.0xsl0th.neon-overdrive '{\"effect\":\"synthgrid\"}'"
   },
   "system.screensaver-laseretch": {
     "label": "Neon Overdrive: Laser Etch",
-    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect laseretch"
+    "action": "omarchy-shell shell summon io.github.0xsl0th.neon-overdrive '{\"effect\":\"laseretch\"}'"
   },
   "system.screensaver-matrix": {
     "label": "Neon Overdrive: Matrix Rain",
-    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect matrix"
+    "action": "omarchy-shell shell summon io.github.0xsl0th.neon-overdrive '{\"effect\":\"matrix\"}'"
   },
   "system.screensaver-vhstape": {
     "label": "Neon Overdrive: VHS Distortion",
-    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect vhstape"
+    "action": "omarchy-shell shell summon io.github.0xsl0th.neon-overdrive '{\"effect\":\"vhstape\"}'"
   },
   "system.screensaver-thunderstorm": {
     "label": "Neon Overdrive: Thunderstorm",
-    "action": "\"$HOME/.config/omarchy/plugins/neon-overdrive.idle/bin/neon-overdrive-launch\" force --effect thunderstorm"
+    "action": "omarchy-shell shell summon io.github.0xsl0th.neon-overdrive '{\"effect\":\"thunderstorm\"}'"
   },
   // END neon-overdrive-screensaver (managed)
 MENU_BLOCK
